@@ -49,7 +49,7 @@ parser_t	*parser		= NULL;
 /* settings */
 struct port_options port_opts = {
 	.device			= NULL,
-	.baudRate		= SERIAL_BAUD_57600,
+	.baudRate		= SERIAL_BAUD_115200,
 	.serial_mode		= "8e1",
 	.bus_addr		= 0,
 	.rx_frame_max		= STM32_MAX_RX_FRAME,
