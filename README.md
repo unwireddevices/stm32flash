@@ -5,7 +5,7 @@ stm32flash (https://sourceforge.net/projects/stm32flash/) with some fixes, inclu
 * support for writing/reading EEPROM on STM32L0 and STM32L1
 
 To program flash memory on STM32L151CC:
-stm32flash -b 230400 -e 1024 -w file.hex COMxx
+stm32flash -b 230400 -e 1023 -w file.hex COMxx
 
 To program EEPROM memory:
 stm32flash -b 230400 -S 0x08080000 -w file.bin COMxx
