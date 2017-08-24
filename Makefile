@@ -1,5 +1,5 @@
 PREFIX = /usr/local
-CFLAGS += -Wall -g
+CFLAGS += -Wall -Werror -g
 
 INSTALL = install
 
