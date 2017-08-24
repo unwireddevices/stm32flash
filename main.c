@@ -127,6 +127,11 @@ static int is_addr_in_flash(uint32_t addr)
 	return addr >= stm->dev->fl_start && addr < stm->dev->fl_end;
 }
 
+static int is_addr_in_eeprom(uint32_t addr)
+{
+	return addr >= stm->dev->eeprom_start && addr < stm->dev->eeprom_end;
+}
+
 /* returns the page that contains address "addr" */
 static int flash_addr_to_page_floor(uint32_t addr)
 {
@@ -297,10 +302,17 @@ int main(int argc, char* argv[]) {
 			end = stm->dev->fl_end;
 		else {
 			no_erase = 1;
-			if (is_addr_in_ram(start))
-				end = stm->dev->ram_end;
-			else
-				end = start + sizeof(uint32_t);
+            if (is_addr_in_eeprom(start)) {
+                end = stm->dev->eeprom_end;
+            } else {
+                if (is_addr_in_ram(start)) {
+                    end = stm->dev->ram_end;
+                } else {
+                    printf("Error: address is not in flash nor RAM nor EEPROM\n");
+                    return -1;
+                    /* end = start + sizeof(uint32_t); */
+                }
+            }
 		}
 
 		if (readwrite_len && (end > start + readwrite_len))
@@ -434,6 +446,9 @@ int main(int argc, char* argv[]) {
 			size = end - start;
 		else
 			size = parser->size(p_st);
+        
+        printf("Data size: %d bytes\n", size);
+        printf("Addresses: 0x%08x to 0x%08x\n", start, end);
 
 		// TODO: It is possible to write to non-page boundaries, by reading out flash
 		//       from partial pages and combining with the input data
@@ -455,6 +470,7 @@ int main(int argc, char* argv[]) {
 
 		fflush(diag);
 		addr = start;
+        
 		while(addr < end && offset < size) {
 			uint32_t left	= end - addr;
 			len		= max_wlen > left ? left : max_wlen;
