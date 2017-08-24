@@ -10,4 +10,4 @@ stm32flash -b 230400 -e 1024 -w file.hex COMxx
 To program EEPROM memory:
 stm32flash -b 230400 -S 0x08080000 -w file.bin COMxx
 
-P.S. 230400 bps speed was tested with FT232 and CP2102 based USB-UART adapters.
+P.S. Default UART baud rate is 115200 bps. Speeds up to 921600 bps were tested with CP2102 based USB-UART adapter. Even higher 3000000 bps speed should be possible with FT232R.
