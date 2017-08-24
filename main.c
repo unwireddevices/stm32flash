@@ -82,6 +82,7 @@ char		*filename;
 char		*gpio_seq	= NULL;
 uint32_t	start_addr	= 0;
 uint32_t	readwrite_len	= 0;
+char        erase_necessary = 0;
 
 /* functions */
 int  parse_options(int argc, char *argv[]);
@@ -448,7 +449,13 @@ int main(int argc, char* argv[]) {
 			size = parser->size(p_st);
         
         printf("Data size: %d bytes\n", size);
-        printf("Addresses: 0x%08x to 0x%08x\n", start, end);
+        if (erase_necessary) {
+            num_pages = size / stm->dev->fl_ps[0];
+            if ((size % stm->dev->fl_ps[0]) != 0) {
+                num_pages++;
+            }
+            printf("%d flash memory pages to be erased\n", num_pages);
+        }
 
 		// TODO: It is possible to write to non-page boundaries, by reading out flash
 		//       from partial pages and combining with the input data
@@ -596,8 +603,8 @@ int parse_options(int argc, char *argv[])
 {
 	int c;
 	char *pLen;
-
-	while ((c = getopt(argc, argv, "a:b:m:r:w:e:vn:g:jkfcChuos:S:F:i:R")) != -1) {
+    
+	while ((c = getopt(argc, argv, "a:b:m:r:w:e:vn:g:EjkfcChuos:S:F:i:R")) != -1) {
 		switch(c) {
 			case 'a':
 				port_opts.bus_addr = strtoul(optarg, NULL, 0);
@@ -652,6 +659,10 @@ int parse_options(int argc, char *argv[])
 				if (!npages)
 					no_erase = 1;
 				break;
+            case 'E':
+                /* erase necessary pages only */
+                erase_necessary = 1;
+                break;
 			case 'u':
 				if (action != ACT_NONE) {
 					err_multi_action(ACT_WRITE_UNPROTECT);
@@ -821,6 +832,7 @@ void show_help(char *name) {
 		"	-k		Disable the flash read-protection\n"
 		"	-o		Erase only\n"
 		"	-e n		Only erase n pages before writing the flash\n"
+		"   -E		Erase necessary pages only\n"
 		"	-v		Verify writes\n"
 		"	-n count	Retry failed writes up to count times (default 10)\n"
 		"	-g address	Start execution at specified address (0 = flash start)\n"
