@@ -1,5 +1,13 @@
 # stm32flash
 
 stm32flash (https://sourceforge.net/projects/stm32flash/) with some fixes, including:
-* support for erasing more than 255 pages (STM32L151CC has 1024 flash pages, and it doesn't support mass erase)
+* support for erasing more than 255 pages (for example, STM32L151CC has 1024 flash pages, and it doesn't support mass erase)
 * support for writing/reading EEPROM on STM32L0 and STM32L1
+
+To program flash memory on STM32L151CC:
+stm32flash -b 230400 -e 1024 -w file.hex COMxx
+
+To program EEPROM memory:
+stm32flash -b 230400 -S 0x08080000 -w file.bin COMxx
+
+P.S. 230400 bps speed was tested with FT232 and CP2102 based USB-UART adapters.
