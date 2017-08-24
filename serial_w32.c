@@ -129,6 +129,7 @@ static port_err_t serial_setup(serial_t *h,
 		case SERIAL_BAUD_1000000: h->newtio.BaudRate = 1000000; break;
 		case SERIAL_BAUD_1500000: h->newtio.BaudRate = 1500000; break;
 		case SERIAL_BAUD_2000000: h->newtio.BaudRate = 2000000; break;
+        case SERIAL_BAUD_3000000: h->newtio.BaudRate = 3000000; break;
 		case SERIAL_BAUD_INVALID:
 
 		default:
