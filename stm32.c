@@ -364,9 +364,21 @@ stm32_t *stm32_init(struct port_interface *port, const char init)
 	memset(stm->cmd, STM32_CMD_ERR, sizeof(stm32_cmd_t));
 	stm->port = port;
 
-	if ((port->flags & PORT_CMD_INIT) && init)
-		if (stm32_send_init_seq(stm) != STM32_ERR_OK)
-			return NULL;
+	if ((port->flags & PORT_CMD_INIT) && init) {
+        uint8_t retr_counter = 0;
+        stm32_err_t ret_val;
+        do {
+            ret_val = stm32_send_init_seq(stm);
+            if (ret_val == STM32_ERR_OK) {
+                break;
+            }
+            retr_counter++;
+        } while (retr_counter < 3);
+        
+        if (ret_val != stm32_send_init_seq(stm)) {
+            return NULL;
+        }
+    }
 
 	/* get the version and read protection status  */
 	if (stm32_send_command(stm, STM32_CMD_GVR) != STM32_ERR_OK) {
