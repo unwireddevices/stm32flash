@@ -200,8 +200,8 @@ static uint32_t flash_page_to_addr(int page)
 int main(int argc, char* argv[]) {
 	struct port_interface *port = NULL;
 	int ret = 1;
-	stm32_err_t s_err;
-	parser_err_t perr;
+	stm32_err_t s_err = 0;
+	parser_err_t perr = 0;
 	FILE *diag = stdout;
 
 	fprintf(diag, "stm32flash " VERSION "\n\n");
