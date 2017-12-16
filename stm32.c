@@ -571,7 +571,7 @@ stm32_err_t stm32_write_memory(const stm32_t *stm, uint32_t address,
 		return STM32_ERR_OK;
 
 	if (len > 256) {
-		fprintf(stderr, "Error: READ length limit at 256 bytes\n");
+		fprintf(stderr, "Error: WRITE length limit at 256 bytes\n");
 		return STM32_ERR_UNKNOWN;
 	}
 
