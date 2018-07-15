@@ -1,6 +1,6 @@
 /*
   stm32flash - Open Source ST STM32 flash program for *nix
-  Copyright (C) 2010 Geoffrey McRae <geoff@spacevs.com>
+  Copyright (C) 2017 Antonio Borneo <borneo.antonio@gmail.com>
 
   This program is free software; you can redistribute it and/or
   modify it under the terms of the GNU General Public License
@@ -17,17 +17,22 @@
   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
+#ifndef _H_COMPILER
+#define _H_COMPILER
 
-#ifndef _H_UTILS
-#define _H_UTILS
-
-#include <stdint.h>
-#include <stdio.h>
-
-char     cpu_le();
-uint32_t be_u32(const uint32_t v);
-uint32_t le_u32(const uint32_t v);
-
-void printStatus(FILE *fd, int condition);
-
+#if defined(__GNUC__)
+#undef __unused
+#undef __maybe_unused
+#define __unused __attribute__ ((unused))
+#define __maybe_unused __attribute__ ((unused))
 #endif
+
+#ifndef __unused
+#define __unused
+#endif
+
+#ifndef __maybe_unused
+#define __maybe_unused
+#endif
+
+#endif /* _H_COMPILER */

@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <signal.h>
 
 #include "init.h"
 #include "utils.h"
@@ -38,13 +39,17 @@
 #include "parsers/binary.h"
 #include "parsers/hex.h"
 
+#if defined(__WIN32__) || defined(__CYGWIN__)
+#include <windows.h>
+#endif
+
 #define VERSION "0.5"
 
 /* device globals */
 stm32_t		*stm		= NULL;
-
 void		*p_st		= NULL;
 parser_t	*parser		= NULL;
+struct port_interface *port = NULL;
 
 /* settings */
 struct port_options port_opts = {
@@ -76,7 +81,9 @@ int		retry		= 10;
 char		exec_flag	= 0;
 uint32_t	execute		= 0;
 char		init_flag	= 1;
+int		    use_stdinout	= 0;
 char		force_binary	= 0;
+FILE		*diag;
 char		reset_flag	= 0;
 char		*filename;
 char		*gpio_seq	= NULL;
@@ -131,6 +138,17 @@ static int is_addr_in_flash(uint32_t addr)
 static int is_addr_in_eeprom(uint32_t addr)
 {
 	return addr >= stm->dev->eeprom_start && addr < stm->dev->eeprom_end;
+}
+
+static int is_addr_in_opt_bytes(uint32_t addr)
+{
+	/* option bytes upper range is inclusive in our device table */
+	return addr >= stm->dev->opt_start && addr <= stm->dev->opt_end;
+}
+
+static int is_addr_in_sysmem(uint32_t addr)
+{
+	return addr >= stm->dev->mem_start && addr < stm->dev->mem_end;
 }
 
 /* returns the page that contains address "addr" */
@@ -197,21 +215,52 @@ static uint32_t flash_page_to_addr(int page)
 	return addr;
 }
 
-int main(int argc, char* argv[]) {
-	struct port_interface *port = NULL;
-	int ret = 1;
-	stm32_err_t s_err = 0;
-	parser_err_t perr = 0;
-	FILE *diag = stdout;
+#if defined(__WIN32__) || defined(__CYGWIN__)
+BOOL CtrlHandler( DWORD fdwCtrlType )
+{
+	fprintf(stderr, "\nCaught signal %lu\n",fdwCtrlType);
+	if (p_st &&  parser ) parser->close(p_st);
+	if (stm  ) stm32_close  (stm);
+	if (port) port->close(port);
+	exit(1);
+}
+#else
+void sighandler(int s){
+	fprintf(stderr, "\nCaught signal %d\n",s);
+	if (p_st &&  parser ) parser->close(p_st);
+	if (stm  ) stm32_close  (stm);
+	if (port) port->close(port);
+	exit(1);
+}
+#endif
 
-	fprintf(diag, "stm32flash " VERSION "\n\n");
-	fprintf(diag, "http://stm32flash.sourceforge.net/\n\n");
+int main(int argc, char* argv[]) {
+	int ret = 1;
+	stm32_err_t s_err;
+	parser_err_t perr;
+	diag = stdout;
+
 	if (parse_options(argc, argv) != 0)
 		goto close;
 
-	if ((action == ACT_READ) && filename[0] == '-') {
+	if (action == ACT_READ && use_stdinout) {
 		diag = stderr;
 	}
+
+	fprintf(diag, "stm32flash " VERSION "\n\n");
+	fprintf(diag, "http://stm32flash.sourceforge.net/\n\n");
+
+#if defined(__WIN32__) || defined(__CYGWIN__)
+	SetConsoleCtrlHandler( (PHANDLER_ROUTINE) CtrlHandler, TRUE );
+#else
+	struct sigaction sigIntHandler;
+
+	sigIntHandler.sa_handler = sighandler;
+	sigemptyset(&sigIntHandler.sa_mask);
+	sigIntHandler.sa_flags = 0;
+
+	sigaction(SIGINT, &sigIntHandler, NULL);
+#endif
 
 	if (action == ACT_WRITE) {
 		/* first try hex */
@@ -265,8 +314,15 @@ int main(int argc, char* argv[]) {
 	}
 
 	fprintf(diag, "Interface %s: %s\n", port->name, port->get_cfg_str(port));
-	if (init_flag && init_bl_entry(port, gpio_seq) == 0)
+
+	if (init_flag && init_bl_entry(port, gpio_seq)){
+		ret = 1;
+		fprintf(stderr, "Failed to send boot enter sequence\n");
 		goto close;
+	}
+
+	port->flush(port);
+
 	stm = stm32_init(port, init_flag);
 	if (!stm)
 		goto close;
@@ -277,8 +333,13 @@ int main(int argc, char* argv[]) {
 		fprintf(diag, "Option 2     : 0x%02x\n", stm->option2);
 	}
 	fprintf(diag, "Device ID    : 0x%04x (%s)\n", stm->pid, stm->dev->name);
-	fprintf(diag, "- RAM        : %dKiB  (%db reserved by bootloader)\n", (stm->dev->ram_end - 0x20000000) / 1024, stm->dev->ram_start - 0x20000000);
-	fprintf(diag, "- Flash      : %dKiB (size first sector: %dx%d)\n", (stm->dev->fl_end - stm->dev->fl_start ) / 1024, stm->dev->fl_pps, stm->dev->fl_ps[0]);
+	fprintf(diag, "- RAM        : Up to %dKiB  (%db reserved by bootloader)\n", (stm->dev->ram_end - 0x20000000) / 1024, stm->dev->ram_start - 0x20000000);
+	fprintf(diag, "- Flash      : Up to %dKiB (size first sector: %dx%d)\n", (stm->dev->fl_end - stm->dev->fl_start ) / 1024, stm->dev->fl_pps, stm->dev->fl_ps[0]);
+    if ((stm->dev->eeprom_end - stm->dev->eeprom_start) > 0) {
+        fprintf(diag, "- EEPROM     : Up to %dKiB \n", (stm->dev->eeprom_end - stm->dev->eeprom_start) / 1024);
+    } else {
+        fprintf(diag, "- EEPROM     : none \n");
+    }
 	fprintf(diag, "- Option RAM : %db\n", stm->dev->opt_end - stm->dev->opt_start + 1);
 	fprintf(diag, "- System RAM : %dKiB\n", (stm->dev->mem_end - stm->dev->mem_start) / 1024);
 
@@ -303,17 +364,23 @@ int main(int argc, char* argv[]) {
 			end = stm->dev->fl_end;
 		else {
 			no_erase = 1;
-            if (is_addr_in_eeprom(start)) {
+
+			if (is_addr_in_ram(start))
+				end = stm->dev->ram_end;
+			else if (is_addr_in_opt_bytes(start))
+				end = stm->dev->opt_end + 1;
+			else if (is_addr_in_sysmem(start))
+				end = stm->dev->mem_end;
+            else if (is_addr_in_eeprom(start)) {
                 end = stm->dev->eeprom_end;
-            } else {
-                if (is_addr_in_ram(start)) {
-                    end = stm->dev->ram_end;
-                } else {
-                    printf("Error: address is not in flash nor RAM nor EEPROM\n");
-                    return -1;
-                    /* end = start + sizeof(uint32_t); */
-                }
-            }
+            } 
+			else {
+				/* Unknown territory */
+				if (readwrite_len)
+					end = start + readwrite_len;
+				else
+					end = start + sizeof(uint32_t);
+			}
 		}
 
 		if (readwrite_len && (end > start + readwrite_len))
@@ -392,20 +459,30 @@ int main(int argc, char* argv[]) {
 		ret = 0;
 		goto close;
 	} else if (action == ACT_READ_PROTECT) {
-		fprintf(stdout, "Read-Protecting flash\n");
+		fprintf(diag, "Read-Protecting flash\n");
 		/* the device automatically performs a reset after the sending the ACK */
 		reset_flag = 0;
-		stm32_readprot_memory(stm);
-		fprintf(stdout,	"Done.\n");
+		s_err = stm32_readprot_memory(stm);
+		if (s_err != STM32_ERR_OK) {
+			fprintf(stderr, "Failed to read-protect flash\n");
+			goto close;
+		}
+		fprintf(diag,	"Done.\n");
+		ret = 0;
 	} else if (action == ACT_READ_UNPROTECT) {
-		fprintf(stdout, "Read-UnProtecting flash\n");
+		fprintf(diag, "Read-UnProtecting flash\n");
 		/* the device automatically performs a reset after the sending the ACK */
 		reset_flag = 0;
-		stm32_runprot_memory(stm);
-		fprintf(stdout,	"Done.\n");
+		s_err = stm32_runprot_memory(stm);
+		if (s_err != STM32_ERR_OK) {
+			fprintf(stderr, "Failed to read-unprotect flash\n");
+			goto close;
+		}
+		fprintf(diag,	"Done.\n");
+		ret = 0;
 	} else if (action == ACT_ERASE_ONLY) {
 		ret = 0;
-		fprintf(stdout, "Erasing flash\n");
+		fprintf(diag, "Erasing flash\n");
 
 		if (num_pages != STM32_MASS_ERASE &&
 		    (start != flash_page_to_addr(first_page)
@@ -421,18 +498,23 @@ int main(int argc, char* argv[]) {
 			ret = 1;
 			goto close;
 		}
+		ret = 0;
 	} else if (action == ACT_WRITE_UNPROTECT) {
 		fprintf(diag, "Write-unprotecting flash\n");
 		/* the device automatically performs a reset after the sending the ACK */
 		reset_flag = 0;
-		stm32_wunprot_memory(stm);
+		s_err = stm32_wunprot_memory(stm);
+		if (s_err != STM32_ERR_OK) {
+			fprintf(stderr, "Failed to write-unprotect flash\n");
+			goto close;
+		}
 		fprintf(diag,	"Done.\n");
-
+		ret = 0;
 	} else if (action == ACT_WRITE) {
 		fprintf(diag, "Write to memory\n");
 
-		off_t 	offset = 0;
-		ssize_t r;
+		unsigned int offset = 0;
+		unsigned int r;
 		unsigned int size;
 		unsigned int max_wlen, max_rlen;
 
@@ -443,7 +525,7 @@ int main(int argc, char* argv[]) {
 		max_rlen = max_rlen < max_wlen ? max_rlen : max_wlen;
 
 		/* Assume data from stdin is whole device */
-		if (filename[0] == '-' && filename[1] == '\0')
+		if (use_stdinout)
 			size = end - start;
 		else
 			size = parser->size(p_st);
@@ -462,7 +544,7 @@ int main(int argc, char* argv[]) {
 		// if ((start % stm->dev->fl_ps[i]) != 0 || (end % stm->dev->fl_ps[i]) != 0) {
 		//	fprintf(stderr, "Specified start & length are invalid (must be page aligned)\n");
 		//	goto close;
-		// } 
+		// }
 
 		// TODO: If writes are not page aligned, we should probably read out existing flash
 		//       contents first, so it can be preserved and combined with new data
@@ -477,7 +559,7 @@ int main(int argc, char* argv[]) {
 
 		fflush(diag);
 		addr = start;
-        
+
 		while(addr < end && offset < size) {
 			uint32_t left	= end - addr;
 			len		= max_wlen > left ? left : max_wlen;
@@ -487,14 +569,14 @@ int main(int argc, char* argv[]) {
 				goto close;
 
 			if (len == 0) {
-				if (filename[0] == '-') {
+				if (use_stdinout) {
 					break;
 				} else {
 					fprintf(stderr, "Failed to read input file\n");
 					goto close;
 				}
 			}
-	
+
 			again:
 			s_err = stm32_write_memory(stm, addr, buffer, len);
 			if (s_err != STM32_ERR_OK) {
@@ -583,11 +665,17 @@ close:
 	}
 
 	if (stm && reset_flag) {
-		fprintf(diag, "\nResetting device... ");
+		fprintf(diag, "\nResetting device... \n");
 		fflush(diag);
-		if (init_bl_exit(stm, port, gpio_seq))
-			fprintf(diag, "done.\n");
-		else	fprintf(diag, "failed.\n");
+		if (init_bl_exit(stm, port, gpio_seq)) {
+			ret = 1;
+			fprintf(diag, "Reset failed.\n");
+		} else
+			fprintf(diag, "Reset done.\n");
+	} else if (port) {
+		/* Always run exit sequence if present */
+		if (gpio_seq && strchr(gpio_seq, ':'))
+			ret = gpio_bl_exit(port, gpio_seq) || ret;
 	}
 
 	if (p_st  ) parser->close(p_st);
@@ -603,7 +691,7 @@ int parse_options(int argc, char *argv[])
 {
 	int c;
 	char *pLen;
-    
+
 	while ((c = getopt(argc, argv, "a:b:m:r:w:e:vn:g:EjkfcChuos:S:F:i:R")) != -1) {
 		switch(c) {
 			case 'a':
@@ -640,7 +728,8 @@ int parse_options(int argc, char *argv[])
 				}
 				action = (c == 'r') ? ACT_READ : ACT_WRITE;
 				filename = optarg;
-				if (filename[0] == '-') {
+				if (filename[0] == '-' && filename[1] == '\0') {
+					use_stdinout = 1;
 					force_binary = 1;
 				}
 				break;
@@ -650,6 +739,7 @@ int parse_options(int argc, char *argv[])
 					return 1;
 				}
 				npages = strtoul(optarg, NULL, 0);
+
                 /*
 				if (npages > 0xFF || npages < 0) {
 					fprintf(stderr, "ERROR: You need to specify a page count between 0 and 255");
@@ -659,10 +749,12 @@ int parse_options(int argc, char *argv[])
 				if (!npages)
 					no_erase = 1;
 				break;
+                
             case 'E':
                 /* erase necessary pages only */
                 erase_necessary = 1;
                 break;
+                
 			case 'u':
 				if (action != ACT_NONE) {
 					err_multi_action(ACT_WRITE_UNPROTECT);
@@ -845,10 +937,20 @@ void show_help(char *name) {
 		"	-c		Resume the connection (don't send initial INIT)\n"
 		"			*Baud rate must be kept the same as the first init*\n"
 		"			This is useful if the reset fails\n"
+		"	-R		Reset device at exit.\n"
 		"	-i GPIO_string	GPIO sequence to enter/exit bootloader mode\n"
 		"			GPIO_string=[entry_seq][:[exit_seq]]\n"
-		"			sequence=[-]n[,sequence]\n"
-		"	-R		Reset device at exit.\n"
+		"			sequence=[[-]signal]&|,[sequence]\n"
+		"\n"
+		"GPIO sequence:\n"
+		"	The following signals can appear in a sequence:\n"
+		"	  Integer number representing GPIO pin\n"
+		"	  'dtr', 'rts' or 'brk' representing serial port signal\n"
+		"	The sequence can use the following delimiters:\n"
+		"	  ',' adds 100 ms delay between signals\n"
+		"	  '&' adds no delay between signals\n"
+		"	The following modifiers can be prepended to a signal:\n"
+		"	  '-' reset signal (low) instead of setting it (high)\n"
 		"\n"
 		"Examples:\n"
 		"	Get device information:\n"
@@ -869,9 +971,14 @@ void show_help(char *name) {
 		"		%s -g 0x0 /dev/ttyS0\n"
 		"\n"
 		"	GPIO sequence:\n"
-		"	- entry sequence: GPIO_3=low, GPIO_2=low, GPIO_2=high\n"
-		"	- exit sequence: GPIO_3=high, GPIO_2=low, GPIO_2=high\n"
-		"		%s -R -i -3,-2,2:3,-2,2 /dev/ttyS0\n",
+		"	- entry sequence: GPIO_3=low, GPIO_2=low, 100ms delay, GPIO_2=high\n"
+		"	- exit sequence: GPIO_3=high, GPIO_2=low, 300ms delay, GPIO_2=high\n"
+		"		%s -i '-3&-2,2:3&-2,,,2' /dev/ttyS0\n"
+		"	GPIO sequence adding delay after port opening:\n"
+		"	- entry sequence: delay 500ms\n"
+		"	- exit sequence: rts=high, dtr=low, 300ms delay, GPIO_2=high\n"
+		"		%s -R -i ',,,,,:rts&-dtr,,,2' /dev/ttyS0\n",
+		name,
 		name,
 		name,
 		name,
