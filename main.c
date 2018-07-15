@@ -832,7 +832,7 @@ void show_help(char *name) {
 		"	-k		Disable the flash read-protection\n"
 		"	-o		Erase only\n"
 		"	-e n		Only erase n pages before writing the flash\n"
-		"   -E		Erase necessary pages only\n"
+		"	-E		Erase necessary pages only\n"
 		"	-v		Verify writes\n"
 		"	-n count	Retry failed writes up to count times (default 10)\n"
 		"	-g address	Start execution at specified address (0 = flash start)\n"
