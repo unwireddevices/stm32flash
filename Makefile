@@ -1,5 +1,5 @@
 PREFIX = /usr/local
-CFLAGS += -Wall -g
+CFLAGS += -Wall -g -static
 
 ifndef CC
 	$(error CC is not defined)
